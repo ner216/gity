@@ -29,6 +29,7 @@ HOME_SEARCH = [f"/home/{original_user}/"]
 YELLOW = "\033[33m"
 BLUE = "\033[34m"
 RED = "\033[31m"
+GREEN = "\033[32m"
 RESET = "\033[0m" #Reset default to color
 
 # A wrapper for the find_repositories_recursive which allows for the search of multiple parent directories
@@ -60,7 +61,7 @@ def find_repositories_recursive(root: str, level_limit: int = 0, repositories: l
 
 def status_repos(repositories: list) -> None:
     for repo in repositories:
-        print(f"{YELLOW}[GITY] -> Executing git status on [{repo}]{RESET}")
+        print(f"{YELLOW}[GITY] -> Executing git status on {GREEN}[{repo}]{RESET}")
         try:
             os.chdir(repo)
             status_result = subprocess.run(['git', 'status'], capture_output=True, text=True)
@@ -70,7 +71,7 @@ def status_repos(repositories: list) -> None:
 
 def fetch_repos(repositories: list) -> None:
     for repo in repositories:
-        print(f"{YELLOW}[GITY] -> Executing git fetch on [{repo}]{RESET}")
+        print(f"{YELLOW}[GITY] -> Executing git fetch on {GREEN}[{repo}]{RESET}")
         try:
             os.chdir(repo)
             status_result = subprocess.run(['git', 'fetch'], capture_output=True, text=True)
@@ -80,7 +81,7 @@ def fetch_repos(repositories: list) -> None:
 
 def pull_repos(repositories: list) -> None:
     for repo in repositories:
-        print(f"{YELLOW}[GITY] -> Executing git pull on [{repo}]{RESET}")
+        print(f"{YELLOW}[GITY] -> Executing git pull on {GREEN}[{repo}]{RESET}")
         try:
             os.chdir(repo)
             status_result = subprocess.run(['git', 'pull'], capture_output=True, text=True)
