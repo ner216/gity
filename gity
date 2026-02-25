@@ -1,0 +1,177 @@
+#!/usr/bin/env python3
+
+# Built in imports
+import os
+import subprocess
+import sys
+import argparse
+from pathlib import Path
+
+# Get user who is running script
+original_user = os.environ.get('SUDO_USER') or os.getlogin()
+
+# Global variables
+DEFAULT_SEARCH = [
+    f"/home/{original_user}/Git/",
+    f"/home/{original_user}/git/",
+    f"/home/{original_user}/src/",
+    f"/home/{original_user}/Src/",
+    f"/home/{original_user}/dev/",
+    f"/home/{original_user}/Dev/",
+    f"/home/{original_user}/projects/",
+    f"/home/{original_user}/Projects/",
+    f"/home/{original_user}/project/",
+    f"/home/{original_user}/Project/"
+]
+HOME_SEARCH = [f"/home/{original_user}/"]
+
+# ANSI colors
+YELLOW = "\033[33m"
+BLUE = "\033[34m"
+RED = "\033[31m"
+RESET = "\033[0m" #Reset default to color
+
+# A wrapper for the find_repositories_recursive which allows for the search of multiple parent directories
+def find_repositories(directory_list: list, level_limit: int = 0) -> list: 
+    repositories = []
+    
+    for directory in directory_list:
+            repositories.extend(find_repositories_recursive(directory, level_limit))
+    
+    return repositories
+    
+# A recursive function that walks(iterates) through directories to find '.git' directories
+def find_repositories_recursive(root: str, level_limit: int = 0, repositories: list = None, level: int = 0):
+    if level_limit != 0 and level_limit == level:
+        return repositories
+
+    if repositories == None:
+        repositories = []
+    
+    if os.path.isdir(root):
+        os.chdir(root)
+        for child_directory in os.listdir(root):
+            child_path = f"{root}{child_directory}"
+            if os.path.isdir(child_path + "/.git"):
+                repositories.append(child_path)
+            elif os.path.isdir(child_path) and child_directory[0] != ".":
+                find_repositories_recursive(child_path + "/", level_limit, repositories, level)
+    return repositories
+
+def status_repos(repositories: list) -> None:
+    for repo in repositories:
+        print(f"{YELLOW}[GITY] -> Executing git status on [{repo}]{RESET}")
+        try:
+            os.chdir(repo)
+            status_result = subprocess.run(['git', 'status'], capture_output=True, text=True)
+            return_code = subprocess.call(['git', 'status'])
+        except Exception as e:
+            print(f"{RED}[GITY] -> Error, unable to execute git status on {repo}\n Exception: {e}{RESET}")
+
+def fetch_repos(repositories: list) -> None:
+    for repo in repositories:
+        print(f"{YELLOW}[GITY] -> Executing git fetch on [{repo}]{RESET}")
+        try:
+            os.chdir(repo)
+            status_result = subprocess.run(['git', 'fetch'], capture_output=True, text=True)
+            return_code = subprocess.call(['git', 'fetch'])
+        except Exception as e:
+            print(f"{RED}[GITY] -> Error, unable to execute git fetch on {repo}\n Exception: {e}{RESET}")
+
+def pull_repos(repositories: list) -> None:
+    for repo in repositories:
+        print(f"{YELLOW}[GITY] -> Executing git pull on [{repo}]{RESET}")
+        try:
+            os.chdir(repo)
+            status_result = subprocess.run(['git', 'pull'], capture_output=True, text=True)
+            return_code = subprocess.call(['git', 'pull'])
+        except Exception as e:
+            print(f"{RED}[GITY] -> Error, unable to execute git pull on {repo}\n Exception: {e}{RESET}")
+
+def get_repository_path_legacy(possible_repository_name: str) -> None:
+    for path in find_repositories(DEFAULT_SEARCH):
+        destination_name = Path(path).name
+        if possible_repository_name in destination_name:
+            print(path)
+            exit(0)
+    print(f"Could not locate a repository with the name {possible_repository_name}")
+    exit(1)
+
+def get_repository_name(file_path: str) -> str:
+    config_repository_name = ""
+    try:
+        with open(file_path, "r") as file:
+            for line in file:
+                if "url =" in line:
+                    url = line.split('=')[-1].strip()
+                    config_repository_name = url.rpartition('/')[-1].replace('.git','')
+        return config_repository_name
+    except Exception as e:
+        print(f"Exception: {e}")
+    
+def get_repository_path(specified_name: str) -> None:
+    for path in find_repositories(DEFAULT_SEARCH):
+        config_repository_name = get_repository_name(path + "/.git/config")
+        if config_repository_name is None or config_repository_name == "":
+            get_repository_path_legacy(specified_name)
+            exit(0)
+        elif specified_name in config_repository_name:
+            print(path)
+            exit(0)
+
+def setup_jump():
+    setup_command = r'echo "jp() { cd \"\$(gity -g \"\$@\")\" && git status; }" >> ~/.bashrc'
+    try:
+        subprocess.run(setup_command, shell=True, check=True)
+        print("Success! 'jp' function added to ~/.bashrc. Run 'source ~/.bashrc' to use it.")
+        print("You can now jump to a repo using 'jp <repo-name>'")
+    except Exception as e:
+        print(f"[ERROR] Failed to write jump function to bashrc.\n Err: {e}")
+
+def main():
+
+    parser = argparse.ArgumentParser(description="Run git-status on all local repositories at once. Without arguments, Gity will search directories specified in 'gity --show-default' up to 3 levels and execute git status on them.")
+    
+    parser.add_argument("-f", "--fetch", action="store_true", help="Execute git fetch on all repos found by Gity.")
+    parser.add_argument("-p", "--pull", action="store_true", help="Execute git pull on all repos found by Gity.")
+    parser.add_argument("-l", "--list", action="store_true", help="List all repositories Gity found in the current home directory.")
+    parser.add_argument("--show-default", action="store_true", help="Show search paths Gity will use when no arguments are given.")
+    parser.add_argument("-a", "--all", action="store_true", help="Recursivly search entire home directory rather than default directories.")
+    parser.add_argument("-g", "--get-path", type=str, help="Prints the path for a specified repository name. (used for jump)")
+    parser.add_argument("-j", "--jump-setup", action="store_true", help="Create alias to use the jump shortcut feature.")
+    
+    args = parser.parse_args()
+    
+    # Create list of repositories depending on the '-a' search option
+    if args.all:
+        local_repositories = find_repositories(HOME_SEARCH)
+    else:
+        local_repositories = find_repositories(DEFAULT_SEARCH, level_limit = 3)
+
+    
+    # Interpret options
+    if len(sys.argv) == 1 or (len(sys.argv) == 2 and args.all):
+        status_repos(local_repositories)
+    elif args.fetch:
+        fetch_repos(local_repositories)
+    elif args.pull:
+        pull_repos(local_repositories)
+    elif args.list and len(sys.argv) <= 3:
+        print(f"{YELLOW}Repositories found by Gity:{RESET}")
+        for repo in local_repositories:
+            print(f" -- {repo}")
+    elif args.show_default and len(sys.argv) == 2:
+        print("By default with no options, \nGity will only search and run git status the following directories up to 3 levels:")
+        for repo in DEFAULT_SEARCH:
+            print(f" -- {repo}")
+    elif args.get_path:
+        possible_repository_name = args.get_path
+        print(get_repository_path(possible_repository_name.strip()))
+    elif args.jump_setup:
+        setup_jump()
+    else:
+        print("Invalid options used; use 'gity --help' for more information.")
+        exit(1)
+    
+main()
+
