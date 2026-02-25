@@ -88,15 +88,7 @@ def pull_repos(repositories: list) -> None:
         except Exception as e:
             print(f"{RED}[GITY] -> Error, unable to execute git pull on {repo}\n Exception: {e}{RESET}")
 
-def get_repository_path_legacy(possible_repository_name: str) -> None:
-    for path in find_repositories(DEFAULT_SEARCH):
-        destination_name = Path(path).name
-        if possible_repository_name in destination_name:
-            print(path)
-            exit(0)
-    print(f"Could not locate a repository with the name {possible_repository_name}")
-    exit(1)
-
+# Returns the name of a repository from the url in the '.git/config' file.
 def get_repository_name(file_path: str) -> str:
     config_repository_name = ""
     try:
@@ -109,16 +101,34 @@ def get_repository_name(file_path: str) -> str:
     except Exception as e:
         print(f"Exception: {e}")
     
+# Print absolute path of a given repo name 
+#   Works by comparing the repo url in the config to the specified name.
 def get_repository_path(specified_name: str) -> None:
     for path in find_repositories(DEFAULT_SEARCH):
         config_repository_name = get_repository_name(path + "/.git/config")
         if config_repository_name is None or config_repository_name == "":
-            get_repository_path_legacy(specified_name)
-            exit(0)
+            continue
         elif specified_name in config_repository_name:
             print(path)
             exit(0)
+    
+    # Call get_repository_path_legacy if the specified name is not in any git config
+    get_repository_path_legacy(specified_name)
 
+# Print absolute path of a given repository name
+#   Works by comparing the possible name to the local paths of discovered repositories.
+#   This method is 'less definite' than get_repository_path so it is used as a fallback.
+def get_repository_path_legacy(possible_repository_name: str) -> None:
+    for path in find_repositories(DEFAULT_SEARCH):
+        destination_name = Path(path).name
+        if possible_repository_name in destination_name:
+            print(path)
+            exit(0)
+    print(f"Could not locate a repository with the name {possible_repository_name}")
+    exit(1)
+
+# Write a bash function for the jump feature to the user's .bashrc
+#   This allows the user to move between repositories with 'jp <repository-name>'
 def setup_jump():
     setup_command = r'echo "jp() { cd \"\$(gity -g \"\$@\")\" && git status; }" >> ~/.bashrc'
     try:
