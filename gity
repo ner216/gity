@@ -6,6 +6,7 @@ import subprocess
 import sys
 import argparse
 from pathlib import Path
+import json
 
 # Get user who is running script
 original_user = os.environ.get('SUDO_USER') or os.getlogin()
@@ -24,6 +25,10 @@ DEFAULT_SEARCH = [
     f"/home/{original_user}/Project/"
 ]
 HOME_SEARCH = [f"/home/{original_user}/"]
+
+CONFIG_FILE = f"/home/{original_user}/.config/gity/config.json"
+CONFIG_DIR = f"/home/{original_user}/.config/gity/"
+CONFIG_TEMPLATE = {"search_paths": [], "include_submodules": 0, "recursion_depth": 3}
 
 # ANSI colors
 YELLOW = "\033[33m"
@@ -55,8 +60,10 @@ def find_repositories_recursive(root: str, level_limit: int = 0, repositories: l
             child_path = f"{root}{child_directory}"
             if os.path.isdir(child_path + "/.git"):
                 repositories.append(child_path)
+            if config["include_submodules"] == 1 and os.path.isfile(child_path + "/.git"):
+                repositories.append(child_path)
             elif os.path.isdir(child_path) and child_directory[0] != ".":
-                find_repositories_recursive(child_path + "/", level_limit, repositories, level)
+                find_repositories_recursive(child_path + "/", level_limit, repositories, level+1)
     return repositories
 
 def status_repos(repositories: list) -> None:
@@ -89,6 +96,100 @@ def pull_repos(repositories: list) -> None:
         except Exception as e:
             print(f"{RED}[GITY] -> Error, unable to execute git pull on {repo}\n Exception: {e}{RESET}")
 
+# Load config and save it to the global config variable
+def load_config() -> dict:
+    if not os.path.exists(CONFIG_FILE):
+        return CONFIG_TEMPLATE
+    else:
+        try:
+            with open(CONFIG_FILE, 'r') as config:
+                data = json.load(config)
+                try:
+                    data = dict(data)
+                    return data
+                except:
+                    return CONFIG_TEMPLATE
+        except Exception as e:
+            print(f"{RED}Err -> Unable to read config at {CONFIG_FILE}\n{RESET} {e}")
+            exit(1)
+
+def save_config() -> None:
+    try:
+        with open(CONFIG_FILE, "w") as file:
+            json.dump(config, file)
+    except Exception as e:
+        print(f"{RED}Err -> Unable to save config to {CONFIG_FILE}\n{RESET} {e}")
+
+def print_config() -> None:
+    print(f"{GREEN}Printing config at [{CONFIG_FILE}]:{RESET}")
+    for element in config:
+        print(f" {element} : {config.get(element)}")
+
+def set_include_submodules(include_submodules: str) -> None:
+    if include_submodules.lower() == "false":
+        config["include_submodules"] = 0
+    elif include_submodules.lower() == "true":
+        config["include_submodules"] = 1
+    else:
+        print(f"{RED} Err -> Invalid parameter used. Canceling operation.{RESET}")
+        exit(1)
+
+    save_config()
+
+def set_recursion_depth(depth: str):
+    try:
+        depth = int(depth)
+        config["recursion_depth"] = depth
+        save_config()
+        print(f" Set max recursion depth to {GREEN}{depth}{RESET}")
+    except Exception as e:
+        print(f"{RED}Err -> Invalid parameter given for recursion depth.\n{RESET} {e}")
+        exit(1)
+            
+def save_search_path(path: str) -> None:
+    if path == "":
+        print(f"{RED}Err -> No path given to be saved. Operation canceled{RESET}")
+        exit(1)
+        
+    if path[-1] != "/":
+        path = path + "/"
+
+    # The shell should convert to full path, but just in case
+    if path[0] == "~/":
+        path = HOME_SEARCH + path[2:]
+
+    if not os.path.exists(path):
+        print(f"{RED}Err -> {path} does not exist. Operation canceled.{RESET}")
+        exit(1)
+
+    if path in config["search_paths"]:
+        print(f" {YELLOW}Custom path [{path}] already saved in config. Canceling operation.{RESET}")
+        exit(0)
+
+    config["search_paths"].append(path)
+
+    save_config()
+    print(f" Added search path {GREEN}[{path}]{RESET}")
+
+def delete_search_path(path: str) -> None:
+    # The shell should convert to full path, but just in case
+    if path[0] == "~/":
+        path = HOME_SEARCH + path[2:]
+
+    if path in config["search_paths"]:
+        config["search_paths"].remove(path)
+        save_config()
+        print(f" Removed search path {GREEN}[{path}]{RESET}")
+    else:
+        print(f" {YELLOW}No matching custom search path found.{RESET}")
+
+def get_search_list() -> list:
+    custom_search_list = config.get("search_paths")
+    if custom_search_list:
+        return custom_search_list + DEFAULT_SEARCH
+    else:
+        return DEFAULT_SEARCH
+
 # Returns the name of a repository from the url in the '.git/config' file.
 def get_repository_name(file_path: str) -> str:
     config_repository_name = ""
@@ -105,7 +206,7 @@ def get_repository_name(file_path: str) -> str:
 # Print absolute path of a given repo name 
 #   Works by comparing the repo url in the config to the specified name.
 def get_repository_path(specified_name: str) -> None:
-    for path in find_repositories(DEFAULT_SEARCH):
+    for path in find_repositories(get_search_list()):
         config_repository_name = get_repository_name(path + "/.git/config")
         if config_repository_name is None or config_repository_name == "":
             continue
@@ -120,7 +221,7 @@ def get_repository_path(specified_name: str) -> None:
 #   Works by comparing the possible name to the local paths of discovered repositories.
 #   This method is 'less definite' than get_repository_path so it is used as a fallback.
 def get_repository_path_legacy(possible_repository_name: str) -> None:
-    for path in find_repositories(DEFAULT_SEARCH):
+    for path in find_repositories(get_search_list(), config.get("recursion_depth")):
         destination_name = Path(path).name
         if possible_repository_name in destination_name:
             print(path)
@@ -137,19 +238,23 @@ def setup_jump():
         print("Success! 'jp' function added to ~/.bashrc. Run 'source ~/.bashrc' to use it.")
         print("You can now jump to a repo using 'jp <repo-name>'")
     except Exception as e:
-        print(f"[ERROR] Failed to write jump function to bashrc.\n Err: {e}")
+        print(f"{RED}[ERROR] Failed to write jump function to bashrc.\n{RESET} Err: {e}")
 
-def main():
-
+def main() -> None:
     parser = argparse.ArgumentParser(description="Run git-status on all local repositories at once. Without arguments, Gity will search directories specified in 'gity --show-default' up to 3 levels and execute git status on them.")
     
     parser.add_argument("-f", "--fetch", action="store_true", help="Execute git fetch on all repos found by Gity.")
     parser.add_argument("-p", "--pull", action="store_true", help="Execute git pull on all repos found by Gity.")
     parser.add_argument("-l", "--list", action="store_true", help="List all repositories Gity found in the current home directory.")
-    parser.add_argument("--show-default", action="store_true", help="Show search paths Gity will use when no arguments are given.")
     parser.add_argument("-a", "--all", action="store_true", help="Recursivly search entire home directory rather than default directories.")
+    parser.add_argument("-s", "--save-path", type=str, help="Save a new directory to the default search paths.")
+    parser.add_argument("-d", "--delete-path", type=str, help="Save a new directory to the default search paths.")
     parser.add_argument("-g", "--get-path", type=str, help="Prints the path for a specified repository name. (used for jump)")
     parser.add_argument("-j", "--jump-setup", action="store_true", help="Create alias to use the jump shortcut feature.")
+    parser.add_argument("--search-paths", action="store_true", help="Show search paths Gity will use when no arguments are given.")
+    parser.add_argument("--set-max-depth", type=str, help="Set the max # recursion levels to search.(INT)(default is 3)(recursion depth)")
+    parser.add_argument("--include-submodules", type=str, help="Set config to include/exclude submodules in Gity output.(TRUE/FALSE)(Default is false)(only recognizes modern submodules that use '.git' files)")
+    parser.add_argument("--view-config", action="store_true", help="Print Gity config and exit.")
     
     args = parser.parse_args()
     
@@ -157,7 +262,7 @@ def main():
     if args.all:
         local_repositories = find_repositories(HOME_SEARCH)
     else:
-        local_repositories = find_repositories(DEFAULT_SEARCH, level_limit = 3)
+        local_repositories = find_repositories(get_search_list(), level_limit = config.get("recursion_depth"))
 
     
     # Interpret options
@@ -171,10 +276,20 @@ def main():
         print(f"{YELLOW}Repositories found by Gity:{RESET}")
         for repo in local_repositories:
             print(f" -- {repo}")
-    elif args.show_default and len(sys.argv) == 2:
+    elif args.view_config and len(sys.argv) == 2:
+        print_config()
+    elif args.search_paths and len(sys.argv) == 2:
         print("By default with no options, \nGity will only search and run git status the following directories up to 3 levels:")
-        for repo in DEFAULT_SEARCH:
+        for repo in get_search_list():
             print(f" -- {repo}")
+    elif args.include_submodules:
+        set_include_submodules(args.include_submodules)
+    elif args.set_max_depth:
+        set_recursion_depth(args.set_max_depth)
+    elif args.save_path:
+        save_search_path(args.save_path)
+    elif args.delete_path:
+        delete_search_path(args.delete_path)
     elif args.get_path:
         possible_repository_name = args.get_path
         print(get_repository_path(possible_repository_name.strip()))
@@ -183,6 +298,8 @@ def main():
     else:
         print("Invalid options used; use 'gity --help' for more information.")
         exit(1)
-    
+
+os.makedirs(CONFIG_DIR, exist_ok=True)
+config = load_config()
 main()
 
