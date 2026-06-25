@@ -11,6 +11,9 @@ import json
 # Get user who is running script
 original_user = os.environ.get('SUDO_USER') or os.getlogin()
 
+GITY_VERSION = "1.0"
+GITY_REMOTE_REPO = "https://github.com/ner216/gity"
+
 # Global variables
 DEFAULT_SEARCH = [
     f"/home/{original_user}/Git/",
@@ -36,6 +39,12 @@ BLUE = "\033[34m"
 RED = "\033[31m"
 GREEN = "\033[32m"
 RESET = "\033[0m" #Reset default to color
+
+def print_version() -> None:
+    print(f" Gity Version -> {GITY_VERSION}")
+    print(f" Repository -> {GITY_REMOTE_REPO}")
+    print(" Created by ner216 (Nolan)")
+    exit(0)
 
 # A wrapper for the find_repositories_recursive which allows for the search of multiple parent directories
 def find_repositories(directory_list: list) -> list: 
@@ -256,6 +265,7 @@ def main() -> None:
     parser.add_argument("--set-max-depth", type=str, help="Set the max # recursion levels to search.(INT)(default is 3)(recursion depth)")
     parser.add_argument("--include-submodules", type=str, help="Set config to include/exclude submodules in Gity output.(TRUE/FALSE)(Default is false)(only recognizes modern submodules that use '.git' files)")
     parser.add_argument("--view-config", action="store_true", help="Print Gity config and exit.")
+    parser.add_argument("-v", "--version", action="store_true", help="Print version info and exit.")
     
     args = parser.parse_args()
     
@@ -279,6 +289,8 @@ def main() -> None:
             print(f" -- {repo}")
     elif args.view_config and len(sys.argv) == 2:
         print_config()
+    elif args.version and len(sys.argv) == 2:
+        print_version()
     elif args.search_paths and len(sys.argv) == 2:
         print("By default with no options, \nGity will only search and run git status the following directories up to 3 levels:")
         for repo in get_search_list():
