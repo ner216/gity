@@ -1,0 +1,13 @@
+Source: gity
+Priority: optional
+Section: utils
+Maintainer: Nolan Pro <email@email.com>
+Build-Depends: debhelper-compat (= 13)
+Homepage: https://github.com/ner216/gity
+Standards-Version: 4.7.0
+
+Package: gity
+Architecture: all
+Depends: ${misc:Depends}, python3
+Description: Manage many local Git repositories at the same time.
+    Execute git commands on all local Git repositories at once.
